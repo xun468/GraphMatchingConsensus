@@ -186,6 +186,7 @@ class DGMC_modified(torch.nn.Module):
         S_L = masked_softmax(S_hat, S_mask, dim=-1)[s_mask]
 
         S_final = self.sum_weights[0]*S_0 + self.sum_weights[1]*S_L
+        S_final = masked_softmax(S_final, S_mask, dim=-1)[s_mask]
         return S_final
 
     def loss(self, S, y, reduction='mean'):
