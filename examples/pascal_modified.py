@@ -7,7 +7,7 @@ import torch_geometric.transforms as T
 from torch_geometric.data import DataLoader
 
 from dgmc.utils import ValidPairDataset
-from dgmc.models import DGMC_modified, SplineCNN
+from dgmc.models import DGMC_modified as DGMC, SplineCNN
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--isotropic', action='store_true')
