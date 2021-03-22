@@ -7,7 +7,7 @@ import torch_geometric.transforms as T
 from torch_geometric.data import DataLoader
 
 from dgmc.utils import ValidPairDataset
-from dgmc.models import DGMC_modified as DGMC, SplineCNN
+from dgmc.models import DGMC_modified, SplineCNN
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--isotropic', action='store_true')
@@ -48,7 +48,7 @@ psi_1 = SplineCNN(dataset.num_node_features, args.dim,
                   dropout=0.5)
 psi_2 = SplineCNN(args.rnd_dim, args.rnd_dim, dataset.num_edge_features,
                   args.num_layers, cat=True, dropout=0.0)
-model = DGMC(psi_1, psi_2, num_steps=args.num_steps).to(device)
+model = DGMC_modified(psi_1, psi_2, num_steps=args.num_steps).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
 

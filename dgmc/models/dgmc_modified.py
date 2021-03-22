@@ -63,7 +63,7 @@ class DGMC_modified(torch.nn.Module):
             graph. (default: :obj:`False`)
     """
     def __init__(self, psi_1, psi_2, num_steps, k=-1, detach=False):
-        super(DGMC, self).__init__()
+        super(DGMC_modified, self).__init__()
 
         self.psi_1 = psi_1
         self.psi_2 = psi_2
