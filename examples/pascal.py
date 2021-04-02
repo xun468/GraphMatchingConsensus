@@ -9,6 +9,8 @@ from torch_geometric.data import DataLoader
 from dgmc.utils import ValidPairDataset
 from dgmc.models import DGMC, SplineCNN
 
+from timeit import default_timer as timer
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--isotropic', action='store_true')
 parser.add_argument('--dim', type=int, default=256)
@@ -98,10 +100,16 @@ def test(dataset):
             if num_examples >= args.test_samples:
                 return correct / num_examples
 
+print("num steps = " + str(args.num_steps))
+print("Isotropic = " + str(args.isotropic))
 
 for epoch in range(1, args.epochs + 1):
+    start = timer()
     loss = train()
-    print(f'Epoch: {epoch:02d}, Loss: {loss:.4f}')
+    end = timer()
+
+    time = end-start 
+    print(f'Epoch: {epoch:02d}, Loss: {loss:.4f}, Time: {time:.2f}')
 
     accs = [100 * test(test_dataset) for test_dataset in test_datasets]
     accs += [sum(accs) / len(accs)]
