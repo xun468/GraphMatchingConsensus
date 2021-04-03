@@ -126,7 +126,6 @@ def test(dataset):
     return correct / num_examples
 
 print("num layers = " + str(args.num_layers))
-print("Isotropic = " + str(args.isotropic))
 
 for epoch in range(1, args.epochs + 1):
     start = timer()

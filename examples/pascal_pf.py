@@ -127,7 +127,6 @@ def test(dataset):
     return correct / num_examples
 
 print("num steps = " + str(args.num_steps))
-print("Isotropic = " + str(args.isotropic))
 
 for epoch in range(1, args.epochs + 1):
     start = timer()
