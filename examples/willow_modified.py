@@ -9,7 +9,7 @@ from torch_geometric.datasets import PascalVOCKeypoints as PascalVOC
 from torch_geometric.data import DataLoader
 
 from dgmc.utils import ValidPairDataset, PairDataset
-from dgmc.models import DGMC, SplineCNN
+from dgmc.models import DGMC_modified, SplineCNN
 
 from timeit import default_timer as timer
 
@@ -56,7 +56,7 @@ psi_1 = SplineCNN(dataset.num_node_features, args.dim,
                   dropout=0.5)
 psi_2 = SplineCNN(args.rnd_dim, args.rnd_dim, dataset.num_edge_features,
                   args.num_layers, cat=True, dropout=0.0)
-model = DGMC(psi_1, psi_2, num_steps=args.num_steps).to(device)
+model = DGMC_modified(psi_1, psi_2, num_steps=args.num_steps).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
 
@@ -72,21 +72,17 @@ def pretrain():
     for data in pretrain_loader:
         optimizer.zero_grad()
         data = data.to(device)
-        S_0, S_L = model(data.x_s, data.edge_index_s, data.edge_attr_s,
+        S_L = model(data.x_s, data.edge_index_s, data.edge_attr_s,
                          data.x_s_batch, data.x_t, data.edge_index_t,
                          data.edge_attr_t, data.x_t_batch)
-        y = generate_voc_y(data.y)
-        loss = model.loss(S_0, y)
-        loss = model.loss(S_L, y) + loss if model.num_steps > 0 else loss
+        y = generate_y(data.y)
+        loss = model.loss(S_L, y)
         loss.backward()
         optimizer.step()
         total_loss += loss.item() * (data.x_s_batch.max().item() + 1)
 
     return total_loss / len(pretrain_loader.dataset)
 
-
-print("num steps = " + str(args.num_steps))
-print("Isotropic = " + str(args.isotropic))
 
 print('Pretraining model on PascalVOC...')
 for epoch in range(1, args.pre_epochs + 1):
@@ -109,13 +105,13 @@ def train(train_loader, optimizer):
     for data in train_loader:
         optimizer.zero_grad()
         data = data.to(device)
-        S_0, S_L = model(data.x_s, data.edge_index_s, data.edge_attr_s,
+        S_L = model(data.x_s, data.edge_index_s, data.edge_attr_s,
                          data.x_s_batch, data.x_t, data.edge_index_t,
                          data.edge_attr_t, data.x_t_batch)
+        
         num_graphs = data.x_s_batch.max().item() + 1
         y = generate_y(num_nodes=10, batch_size=num_graphs)
-        loss = model.loss(S_0, y)
-        loss = model.loss(S_L, y) + loss if model.num_steps > 0 else loss
+        loss = model.loss(S_L, y)
         loss.backward()
         optimizer.step()
         total_loss += loss.item() * num_graphs
@@ -175,6 +171,9 @@ def run(i, datasets):
 
     return accs
 
+
+print("num layers = " + str(args.num_layers))
+print("Isotropic = " + str(args.isotropic))
 
 accs = [run(i, datasets) for i in range(1, 1 + args.runs)]
 print('-' * 14 * 5)

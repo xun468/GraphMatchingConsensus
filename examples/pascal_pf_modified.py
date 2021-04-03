@@ -7,7 +7,7 @@ from torch_geometric.data import Data, DataLoader
 import torch_geometric.transforms as T
 from torch_geometric.datasets import PascalPF
 
-from dgmc.models import DGMC, SplineCNN
+from dgmc.models import DGMC_modified, SplineCNN
 
 from timeit import default_timer as timer
 
@@ -83,7 +83,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 psi_1 = SplineCNN(1, args.dim, 2, args.num_layers, cat=False, dropout=0.0)
 psi_2 = SplineCNN(args.rnd_dim, args.rnd_dim, 2, args.num_layers, cat=True,
                   dropout=0.0)
-model = DGMC(psi_1, psi_2, num_steps=args.num_steps).to(device)
+model = DGMC_modified(psi_1, psi_2, num_steps=args.num_steps).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
 
@@ -94,12 +94,11 @@ def train():
     for i, data in enumerate(train_loader):
         optimizer.zero_grad()
         data = data.to(device)
-        S_0, S_L = model(data.x_s, data.edge_index_s, data.edge_attr_s,
+        S_L = model(data.x_s, data.edge_index_s, data.edge_attr_s,
                          data.x_s_batch, data.x_t, data.edge_index_t,
                          data.edge_attr_t, data.x_t_batch)
         y = torch.stack([data.y_index_s, data.y_t], dim=0)
-        loss = model.loss(S_0, y)
-        loss = model.loss(S_L, y) + loss if model.num_steps > 0 else loss
+        loss = model.loss(S_L, y)
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
@@ -117,7 +116,7 @@ def test(dataset):
     for pair in dataset.pairs:
         data_s, data_t = dataset[pair[0]], dataset[pair[1]]
         data_s, data_t = data_s.to(device), data_t.to(device)
-        S_0, S_L = model(data_s.x, data_s.edge_index, data_s.edge_attr, None,
+        S_L = model(data_s.x, data_s.edge_index, data_s.edge_attr, None,
                          data_t.x, data_t.edge_index, data_t.edge_attr, None)
         y = torch.arange(data_s.num_nodes, device=device)
         y = torch.stack([y, y], dim=0)
@@ -126,7 +125,7 @@ def test(dataset):
 
     return correct / num_examples
 
-print("num steps = " + str(args.num_steps))
+print("num layers = " + str(args.num_layers))
 print("Isotropic = " + str(args.isotropic))
 
 for epoch in range(1, args.epochs + 1):
