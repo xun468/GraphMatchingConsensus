@@ -233,10 +233,12 @@ class DGMC_modified(torch.nn.Module):
             D = o_s - tmp_t.view(B, N_s, k, R_out)
             S_hat = S_hat + self.mlp(D).squeeze(-1)
 
-            S_L = S_hat.softmax(dim=-1)[s_mask]
+            S_L = S_hat.softmax(dim=-1)[s_mask]       
 
             S_final = self.sum_weights[0]*S_0 + self.sum_weights[1]*S_L
-            S_final = torch.softmax(S_final, dim=-1)
+            S_final = S_final.unsqueeze(0)
+            S_final = S_final.softmax(dim=-1)[s_mask]
+            # S_final = torch.softmax(S_final, dim=-1)
 
             S_idx = S_idx[s_mask]
 
@@ -250,7 +252,6 @@ class DGMC_modified(torch.nn.Module):
             #     idx, S_0.view(-1), size, requires_grad=S_0.requires_grad)
             # S_sparse_0.__idx__ = S_idx
             # S_sparse_0.__val__ = S_0
-
             S_sparse_L = torch.sparse_coo_tensor(
                 idx, S_final.view(-1), size, requires_grad=S_final.requires_grad)
             S_sparse_L.__idx__ = S_idx
