@@ -153,6 +153,7 @@ class DGMC_modified(torch.nn.Module):
             of shapes :obj:`[batch_size * num_nodes, num_nodes]`. The
             correspondence matrix are either given as dense or sparse matrices.
         """
+
         h_s = self.psi_1(x_s, edge_index_s, edge_attr_s)
         h_t = self.psi_1(x_t, edge_index_t, edge_attr_t)
 
@@ -165,29 +166,97 @@ class DGMC_modified(torch.nn.Module):
         (B, N_s, C_out), N_t = h_s.size(), h_t.size(1)
         R_in, R_out = self.psi_2.in_channels, self.psi_2.out_channels
 
-        # ------ Dense variant ------ #
-        S_hat = h_s @ h_t.transpose(-1, -2)  # [B, N_s, N_t, C_out]
-        S_mask = s_mask.view(B, N_s, 1) & t_mask.view(B, 1, N_t)
-        S_0 = masked_softmax(S_hat, S_mask, dim=-1)[s_mask]
+        if self.k < 1:
+          # ------ Dense variant ------ #
+          S_hat = h_s @ h_t.transpose(-1, -2)  # [B, N_s, N_t, C_out]
+          S_mask = s_mask.view(B, N_s, 1) & t_mask.view(B, 1, N_t)
+          S_0 = masked_softmax(S_hat, S_mask, dim=-1)[s_mask]
 
-        S = masked_softmax(S_hat, S_mask, dim=-1)
-        r_s = torch.randn((B, N_s, R_in), dtype=h_s.dtype,
-                          device=h_s.device)
-        r_t = S.transpose(-1, -2) @ r_s
+          S = masked_softmax(S_hat, S_mask, dim=-1)
+          r_s = torch.randn((B, N_s, R_in), dtype=h_s.dtype,
+                            device=h_s.device)
+          r_t = S.transpose(-1, -2) @ r_s
 
-        r_s, r_t = to_sparse(r_s, s_mask), to_sparse(r_t, t_mask)
-        o_s = self.psi_2(r_s, edge_index_s, edge_attr_s)
-        o_t = self.psi_2(r_t, edge_index_t, edge_attr_t)
-        o_s, o_t = to_dense(o_s, s_mask), to_dense(o_t, t_mask)
+          r_s, r_t = to_sparse(r_s, s_mask), to_sparse(r_t, t_mask)
+          o_s = self.psi_2(r_s, edge_index_s, edge_attr_s)
+          o_t = self.psi_2(r_t, edge_index_t, edge_attr_t)
+          o_s, o_t = to_dense(o_s, s_mask), to_dense(o_t, t_mask)
 
-        D = o_s.view(B, N_s, 1, R_out) - o_t.view(B, 1, N_t, R_out)
-        S_hat = S_hat + self.mlp(D).squeeze(-1).masked_fill(~S_mask, 0)
+          D = o_s.view(B, N_s, 1, R_out) - o_t.view(B, 1, N_t, R_out)
+          S_hat = S_hat + self.mlp(D).squeeze(-1).masked_fill(~S_mask, 0)
 
-        S_L = masked_softmax(S_hat, S_mask, dim=-1)[s_mask]
+          S_L = masked_softmax(S_hat, S_mask, dim=-1)[s_mask]
 
-        S_final = self.sum_weights[0]*S_0 + self.sum_weights[1]*S_L
-        S_final = torch.softmax(S_final, dim=-1)
-        return S_final
+          S_final = self.sum_weights[0]*S_0 + self.sum_weights[1]*S_L
+          S_final = torch.softmax(S_final, dim=-1)
+          return S_final
+        else: 
+            # ------ Sparse variant ------ #
+            S_idx = self.__top_k__(h_s, h_t)  # [B, N_s, k]
+
+            # In addition to the top-k, randomly sample negative examples and
+            # ensure that the ground-truth is included as a sparse entry.
+            if self.training and y is not None:
+                rnd_size = (B, N_s, min(self.k, N_t - self.k))
+                S_rnd_idx = torch.randint(N_t, rnd_size, dtype=torch.long,
+                                          device=S_idx.device)
+                S_idx = torch.cat([S_idx, S_rnd_idx], dim=-1)
+                S_idx = self.__include_gt__(S_idx, s_mask, y)
+
+            k = S_idx.size(-1)
+            tmp_s = h_s.view(B, N_s, 1, C_out)
+            idx = S_idx.view(B, N_s * k, 1).expand(-1, -1, C_out)
+            tmp_t = torch.gather(h_t.view(B, N_t, C_out), -2, idx)
+            S_hat = (tmp_s * tmp_t.view(B, N_s, k, C_out)).sum(dim=-1)
+
+            ##################################
+            S_0 = S_hat.softmax(dim=-1)[s_mask]
+            ##################################
+
+            S = S_hat.softmax(dim=-1)
+            r_s = torch.randn((B, N_s, R_in), dtype=h_s.dtype,
+                              device=h_s.device)
+
+            tmp_t = r_s.view(B, N_s, 1, R_in) * S.view(B, N_s, k, 1)
+            tmp_t = tmp_t.view(B, N_s * k, R_in)
+            idx = S_idx.view(B, N_s * k, 1)
+            r_t = scatter_add(tmp_t, idx, dim=1, dim_size=N_t)
+
+            r_s, r_t = to_sparse(r_s, s_mask), to_sparse(r_t, t_mask)
+            o_s = self.psi_2(r_s, edge_index_s, edge_attr_s)
+            o_t = self.psi_2(r_t, edge_index_t, edge_attr_t)
+            o_s, o_t = to_dense(o_s, s_mask), to_dense(o_t, t_mask)
+
+            o_s = o_s.view(B, N_s, 1, R_out).expand(-1, -1, k, -1)
+            idx = S_idx.view(B, N_s * k, 1).expand(-1, -1, R_out)
+            tmp_t = torch.gather(o_t.view(B, N_t, R_out), -2, idx)
+            D = o_s - tmp_t.view(B, N_s, k, R_out)
+            S_hat = S_hat + self.mlp(D).squeeze(-1)
+
+            S_L = S_hat.softmax(dim=-1)[s_mask]
+
+            S_final = self.sum_weights[0]*S_0 + self.sum_weights[1]*S_L
+            S_final = torch.softmax(S_final, dim=-1)
+
+            S_idx = S_idx[s_mask]
+
+            # Convert sparse layout to `torch.sparse_coo_tensor`.
+            row = torch.arange(x_s.size(0), device=S_idx.device)
+            row = row.view(-1, 1).repeat(1, k)
+            idx = torch.stack([row.view(-1), S_idx.view(-1)], dim=0)
+            size = torch.Size([x_s.size(0), N_t])
+
+            # S_sparse_0 = torch.sparse_coo_tensor(
+            #     idx, S_0.view(-1), size, requires_grad=S_0.requires_grad)
+            # S_sparse_0.__idx__ = S_idx
+            # S_sparse_0.__val__ = S_0
+
+            S_sparse_L = torch.sparse_coo_tensor(
+                idx, S_final.view(-1), size, requires_grad=S_final.requires_grad)
+            S_sparse_L.__idx__ = S_idx
+            S_sparse_L.__val__ = S_final
+
+            return S_sparse_L
 
     def loss(self, S, y, reduction='mean'):
         r"""Computes the negative log-likelihood loss on the correspondence

@@ -6,6 +6,8 @@ from torch_geometric.datasets import DBP15K
 
 from dgmc.models import DGMC, RelCNN
 
+from timeit import default_timer as timer
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--category', type=str, required=True)
 parser.add_argument('--dim', type=int, default=256)
@@ -59,18 +61,31 @@ def test():
 
     return hits1, hits10
 
+print("num steps = " + str(args.num_steps))
 
 print('Optimize initial feature matching...')
 model.num_steps = 0
+maxhits = 0
+best_epoch = 0
 for epoch in range(1, 201):
     if epoch == 101:
         print('Refine correspondence matrix...')
         model.num_steps = args.num_steps
         model.detach = True
 
+    start = timer()
     loss = train()
+    end = timer()
 
+    time = end-start
+    
     if epoch % 10 == 0 or epoch > 100:
         hits1, hits10 = test()
+        if(hits1 > maxhits):
+          maxhits = hits1 
+          best_epoch = epoch 
+          
         print((f'{epoch:03d}: Loss: {loss:.4f}, Hits@1: {hits1:.4f}, '
-               f'Hits@10: {hits10:.4f}'))
+               f'Hits@10: {hits10:.4f}, Time: {time:.2f}'))
+
+print(best_epoch)
