@@ -1,5 +1,5 @@
 import torch
-from torch.nn import Sequential as Seq, Linear as Lin, ReLU, Parameter, ModuleList
+from torch.nn import Sequential as Seq, Linear as Lin, ReLU, Parameter
 from torch_scatter import scatter_add
 from torch_geometric.utils import to_dense_batch
 from torch_geometric.nn.inits import reset
@@ -30,7 +30,7 @@ def to_dense(x, mask):
     return out
 
 
-class DGMC_modified(torch.nn.Module):
+class DGMC_modified_v2(torch.nn.Module):
     r"""The *Deep Graph Matching Consensus* module which first matches nodes
     locally via a graph neural network :math:`\Psi_{\theta_1}`, and then
     updates correspondence scores iteratively by reaching for neighborhood
@@ -62,32 +62,29 @@ class DGMC_modified(torch.nn.Module):
             computation of :math:`\Psi_{\theta_1}` from the current computation
             graph. (default: :obj:`False`)
     """
-    def __init__(self, psi_1, psi_stack, num_steps, k=-1, detach=False):
-        super(DGMC_modified, self).__init__()
+    def __init__(self, psi_1, psi_2, num_steps, k=-1, detach=False):
+        super(DGMC_modified_v2, self).__init__()
 
         self.psi_1 = psi_1
-        self.psi_stack = ModuleList(psi_stack)
-        self.num_psi = len(psi_stack)
+        self.psi_2 = psi_2
         self.num_steps = num_steps
         self.k = k
         self.detach = detach
         self.backend = 'auto'
 
         self.mlp = Seq(
-            Lin(psi_stack[-1].out_channels, psi_stack[-1].out_channels),
+            Lin(psi_2.out_channels, psi_2.out_channels),
             ReLU(),
-            Lin(psi_stack[-1].out_channels, 1),
+            Lin(psi_2.out_channels, 1),
         )
 
-        self.sum_weights = Parameter(torch.ones(self.num_psi+1))
+        self.sum_weights = Parameter(torch.ones(2))
 
     def reset_parameters(self):
         self.psi_1.reset_parameters()
-        for psi in self.psi_stack:
-          psi.reset_parameters()
-
+        self.psi_2.reset_parameters()
         reset(self.mlp)
-        self.sum_weights = Parameter(torch.ones(self.num_psi+1))
+        #reset sum_weights
 
     def __top_k__(self, x_s, x_t):  # pragma: no cover
         r"""Memory-efficient top-k correspondence computation."""
@@ -174,32 +171,27 @@ class DGMC_modified(torch.nn.Module):
         S_mask = s_mask.view(B, N_s, 1) & t_mask.view(B, 1, N_t)        
         S_0 = masked_softmax(S_hat, S_mask, dim=-1)[s_mask]
 
-        # ------ Neighborhood Consensus ------ #
-        S_stack = []
-        for i in range(self.num_psi):
+        S_stack = [] 
+        for _ in range(self.num_steps):
           S = masked_softmax(S_hat, S_mask, dim=-1)
           r_s = torch.randn((B, N_s, R_in), dtype=h_s.dtype,
                             device=h_s.device)
           r_t = S.transpose(-1, -2) @ r_s
 
           r_s, r_t = to_sparse(r_s, s_mask), to_sparse(r_t, t_mask)
-          o_s = self.psi_stack[i](r_s, edge_index_s, edge_attr_s)
-          o_t = self.psi_stack[i](r_t, edge_index_t, edge_attr_t)
+          o_s = self.psi_2(r_s, edge_index_s, edge_attr_s)
+          o_t = self.psi_2(r_t, edge_index_t, edge_attr_t)
           o_s, o_t = to_dense(o_s, s_mask), to_dense(o_t, t_mask)
 
           D = o_s.view(B, N_s, 1, R_out) - o_t.view(B, 1, N_t, R_out)
           S_hat = S_hat + self.mlp(D).squeeze(-1).masked_fill(~S_mask, 0)
+
           S_stack.append(masked_softmax(S_hat, S_mask, dim=-1)[s_mask])
 
-        # ------ Final Summation ------ #
-        S_final = self.sum_weights[0]*S_0
-
-        for i in range(1,self.num_psi+1):
-          S_final += self.sum_weights[i] * S_stack[i-1]
+        S_final = self.sum_weights[0]*S_0 + self.sum_weights[1]*S_stack[-1]
         S_final = torch.softmax(S_final, dim=-1)
-
         return S_final
-      
+
     def loss(self, S, y, reduction='mean'):
         r"""Computes the negative log-likelihood loss on the correspondence
         matrix.
