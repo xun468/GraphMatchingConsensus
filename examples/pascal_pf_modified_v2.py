@@ -7,7 +7,7 @@ from torch_geometric.data import Data, DataLoader
 import torch_geometric.transforms as T
 from torch_geometric.datasets import PascalPF
 
-from dgmc.models import DGMC_modified_v2 as DGMC_modified, SplineCNN
+from dgmc.models import DGMC_modified_v2, SplineCNN
 
 from timeit import default_timer as timer
 
@@ -83,7 +83,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 psi_1 = SplineCNN(1, args.dim, 2, args.num_layers, cat=False, dropout=0.0)
 psi_2 = SplineCNN(args.rnd_dim, args.rnd_dim, 2, args.num_layers, cat=True,
                   dropout=0.0)
-model = DGMC_modified(psi_1, psi_2, num_steps=args.num_steps).to(device)
+model = DGMC_modified_v2(psi_1, psi_2, num_steps=args.num_steps).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
 

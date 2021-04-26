@@ -7,7 +7,7 @@ import torch_geometric.transforms as T
 from torch_geometric.data import DataLoader
 
 from dgmc.utils import ValidPairDataset
-from dgmc.models import DGMC_modified, SplineCNN
+from dgmc.models import DGMC_modified_v2 as DGMC_modified, SplineCNN
 
 from timeit import default_timer as timer
 

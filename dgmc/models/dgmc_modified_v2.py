@@ -165,7 +165,7 @@ class DGMC_modified_v2(torch.nn.Module):
 
         assert h_s.size(0) == h_t.size(0), 'Encountered unequal batch-sizes'
         (B, N_s, C_out), N_t = h_s.size(), h_t.size(1)
-        R_in, R_out = self.psi_stack[-1].in_channels, self.psi_stack[-1].out_channels
+        R_in, R_out = self.psi_2.in_channels, self.psi_2.out_channels
 
         S_hat = h_s @ h_t.transpose(-1, -2)  # [B, N_s, N_t, C_out]
         S_mask = s_mask.view(B, N_s, 1) & t_mask.view(B, 1, N_t)        
