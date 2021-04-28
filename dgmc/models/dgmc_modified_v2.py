@@ -1,5 +1,5 @@
 import torch
-from torch.nn import Sequential as Seq, Linear as Lin, ReLU, Parameter
+from torch.nn import Sequential as Seq, Linear as Lin, ReLU, Parameter, ModuleList
 from torch_scatter import scatter_add
 from torch_geometric.utils import to_dense_batch
 from torch_geometric.nn.inits import reset
@@ -62,12 +62,13 @@ class DGMC_modified_v2(torch.nn.Module):
             computation of :math:`\Psi_{\theta_1}` from the current computation
             graph. (default: :obj:`False`)
     """
-    def __init__(self, psi_1, psi_2, num_steps, k=-1, detach=False):
+    def __init__(self, psi1_stack, psi_2, num_steps, num_lsteps, k=-1, detach=False):
         super(DGMC_modified_v2, self).__init__()
 
-        self.psi_1 = psi_1
+        self.psi1_stack = ModuleList(psi1_stack)
         self.psi_2 = psi_2
         self.num_steps = num_steps
+        self.num_lsteps = num_lsteps 
         self.k = k
         self.detach = detach
         self.backend = 'auto'
@@ -78,10 +79,12 @@ class DGMC_modified_v2(torch.nn.Module):
             Lin(psi_2.out_channels, 1),
         )
 
-        self.sum_weights = Parameter(torch.ones(2))
+        self.sum_weights_local = Parameter(torch.ones(len(psi1_stack)))
+        self.sum_weights = Parameter(torch.ones(1))
 
     def reset_parameters(self):
-        self.psi_1.reset_parameters()
+        for psi in self.psi1_stack:          
+          psi.reset_parameters()
         self.psi_2.reset_parameters()
         reset(self.mlp)
         #reset sum_weights
@@ -155,22 +158,27 @@ class DGMC_modified_v2(torch.nn.Module):
         """
 
         # ------ Local Feature Matching ------ #
-        h_s = self.psi_1(x_s, edge_index_s, edge_attr_s)
-        h_t = self.psi_1(x_t, edge_index_t, edge_attr_t)
+        L_stack = [] 
+        # for _ in range(self.num_lsteps):
+        for psi_1 in self.psi1_stack: 
+          h_s = psi_1(x_s, edge_index_s, edge_attr_s)
+          h_t = psi_1(x_t, edge_index_t, edge_attr_t)
 
-        h_s, h_t = (h_s.detach(), h_t.detach()) if self.detach else (h_s, h_t)
+          h_s, h_t = (h_s.detach(), h_t.detach()) if self.detach else (h_s, h_t)
 
-        h_s, s_mask = to_dense_batch(h_s, batch_s, fill_value=0)
-        h_t, t_mask = to_dense_batch(h_t, batch_t, fill_value=0)
+          h_s, s_mask = to_dense_batch(h_s, batch_s, fill_value=0)
+          h_t, t_mask = to_dense_batch(h_t, batch_t, fill_value=0)
 
-        assert h_s.size(0) == h_t.size(0), 'Encountered unequal batch-sizes'
-        (B, N_s, C_out), N_t = h_s.size(), h_t.size(1)
-        R_in, R_out = self.psi_2.in_channels, self.psi_2.out_channels
+          assert h_s.size(0) == h_t.size(0), 'Encountered unequal batch-sizes'
+          (B, N_s, C_out), N_t = h_s.size(), h_t.size(1)
+          R_in, R_out = self.psi_2.in_channels, self.psi_2.out_channels
 
-        S_hat = h_s @ h_t.transpose(-1, -2)  # [B, N_s, N_t, C_out]
-        S_mask = s_mask.view(B, N_s, 1) & t_mask.view(B, 1, N_t)        
-        S_0 = masked_softmax(S_hat, S_mask, dim=-1)[s_mask]
+          S_hat = h_s @ h_t.transpose(-1, -2)  # [B, N_s, N_t, C_out]
+          S_mask = s_mask.view(B, N_s, 1) & t_mask.view(B, 1, N_t)     
 
+          L_stack.append(masked_softmax(S_hat, S_mask, dim=-1)[s_mask])
+
+        # ------ Neighborhood Consensus ------ #
         S_stack = [] 
         for _ in range(self.num_steps):
           S = masked_softmax(S_hat, S_mask, dim=-1)
@@ -188,7 +196,13 @@ class DGMC_modified_v2(torch.nn.Module):
 
           S_stack.append(masked_softmax(S_hat, S_mask, dim=-1)[s_mask])
 
-        S_final = self.sum_weights[0]*S_0 + self.sum_weights[1]*S_stack[-1]
+        # S_final = self.sum_weights[0]*S_0 + self.sum_weights[1]*S_stack[-1]
+        # S_final = self.sum_weights[0]*L_stack[-1] + self.sum_weights[1]*S_stack[-1]
+        S_final = self.sum_weights_local[0]*L_stack[0] 
+        for i in range(1,len(self.sum_weights_local)):
+          S_final += self.sum_weights_local[i]*L_stack[i]
+        
+        S_final += self.sum_weights[0]*S_stack[-1]
         S_final = torch.softmax(S_final, dim=-1)
         return S_final
 
