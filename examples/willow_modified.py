@@ -80,7 +80,7 @@ def pretrain():
         S_L = model(data.x_s, data.edge_index_s, data.edge_attr_s,
                          data.x_s_batch, data.x_t, data.edge_index_t,
                          data.edge_attr_t, data.x_t_batch)
-        y = generate_y(data.y)
+        y = generate_voc_y(data.y)
         loss = model.loss(S_L, y)
         loss.backward()
         optimizer.step()
@@ -88,6 +88,9 @@ def pretrain():
 
     return total_loss / len(pretrain_loader.dataset)
 
+print("num layers = " + str(args.num_layers))
+print("num psi = " + str(args.num_psi))
+print("Isotropic = " + str(args.isotropic))
 
 print('Pretraining model on PascalVOC...')
 for epoch in range(1, args.pre_epochs + 1):
@@ -179,9 +182,6 @@ def run(i, datasets):
 
     return accs
 
-
-print("num layers = " + str(args.num_layers))
-print("Isotropic = " + str(args.isotropic))
 
 accs = [run(i, datasets) for i in range(1, 1 + args.runs)]
 print('-' * 14 * 5)
