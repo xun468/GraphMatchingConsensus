@@ -141,7 +141,7 @@ def test(test_dataset):
     while (num_examples < args.test_samples):
         for data_s, data_t in zip(test_loader1, test_loader2):
             data_s, data_t = data_s.to(device), data_t.to(device)
-            _, S_L = model(data_s.x, data_s.edge_index, data_s.edge_attr,
+            S_L = model(data_s.x, data_s.edge_index, data_s.edge_attr,
                            data_s.batch, data_t.x, data_t.edge_index,
                            data_t.edge_attr, data_t.batch)
             y = generate_y(num_nodes=10, batch_size=data_t.num_graphs)
