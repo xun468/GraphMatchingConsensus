@@ -19,6 +19,7 @@ parser.add_argument('--dim', type=int, default=256)
 parser.add_argument('--rnd_dim', type=int, default=128)
 parser.add_argument('--num_layers', type=int, default=2)
 parser.add_argument('--num_steps', type=int, default=10)
+parser.add_argument('--num_psi', type=int, default=1)
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--batch_size', type=int, default=512)
 parser.add_argument('--pre_epochs', type=int, default=15)
@@ -54,9 +55,13 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 psi_1 = SplineCNN(dataset.num_node_features, args.dim,
                   dataset.num_edge_features, args.num_layers, cat=False,
                   dropout=0.5)
-psi_2 = SplineCNN(args.rnd_dim, args.rnd_dim, dataset.num_edge_features,
-                  args.num_layers, cat=True, dropout=0.0)
-model = DGMC_modified(psi_1, psi_2, num_steps=args.num_steps).to(device)
+
+psi_stack = []
+for i in range(args.num_psi):
+  psi_stack.append(SplineCNN(args.rnd_dim, args.rnd_dim, dataset.num_edge_features,
+                  args.num_layers, cat=True, dropout=0.0))
+
+model = DGMC_modified(psi_1, psi_stack, num_steps=args.num_steps).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
 
