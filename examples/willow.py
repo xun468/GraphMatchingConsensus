@@ -90,8 +90,11 @@ print("Isotropic = " + str(args.isotropic))
 
 print('Pretraining model on PascalVOC...')
 for epoch in range(1, args.pre_epochs + 1):
+    start = timer()
     loss = pretrain()
-    print(f'Epoch: {epoch:02d}, Loss: {loss:.4f}')
+    end = timer()
+    time = end-start 
+    print(f'Epoch: {epoch:02d}, Loss: {loss:.4f}, Time: {time:.2f}')
 state_dict = copy.deepcopy(model.state_dict())
 print('Done!')
 
