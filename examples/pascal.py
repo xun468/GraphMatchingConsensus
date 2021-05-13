@@ -86,22 +86,33 @@ def test(dataset):
     loader = DataLoader(dataset, args.batch_size, shuffle=False,
                         follow_batch=['x_s', 'x_t'])
 
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
     correct = num_examples = 0
+    times = []
     while (num_examples < args.test_samples):
         for data in loader:
             data = data.to(device)
+            start.record()
             S_0, S_L = model(data.x_s, data.edge_index_s, data.edge_attr_s,
                              data.x_s_batch, data.x_t, data.edge_index_t,
                              data.edge_attr_t, data.x_t_batch)
+            end.record()
+            torch.cuda.synchronize()
             y = generate_y(data.y)
             correct += model.acc(S_L, y, reduction='sum')
             num_examples += y.size(1)
+            times.append(start.elapsed_time(end))
 
             if num_examples >= args.test_samples:
-                return correct / num_examples
+              print("Average inference time: " + str(sum(times)/len(times))) 
+              return correct / num_examples
 
 print("num steps = " + str(args.num_steps))
 print("Isotropic = " + str(args.isotropic))
+
+start = torch.cuda.Event(enable_timing=True)
+end = torch.cuda.Event(enable_timing=True)
 
 for epoch in range(1, args.epochs + 1):
     start = timer()
