@@ -134,18 +134,25 @@ def test(test_dataset):
     test_loader2 = DataLoader(test_dataset, args.batch_size, shuffle=True)
 
     correct = num_examples = 0
+    times = []
     while (num_examples < args.test_samples):
         for data_s, data_t in zip(test_loader1, test_loader2):
             data_s, data_t = data_s.to(device), data_t.to(device)
+
+            start.record()
             _, S_L = model(data_s.x, data_s.edge_index, data_s.edge_attr,
                            data_s.batch, data_t.x, data_t.edge_index,
                            data_t.edge_attr, data_t.batch)
+            end.record()
+            torch.cuda.synchronize()
+
             y = generate_y(num_nodes=10, batch_size=data_t.num_graphs)
             correct += model.acc(S_L, y, reduction='sum')
             num_examples += y.size(1)
 
             if num_examples >= args.test_samples:
-                return correct / num_examples
+              print("Average inference time: " + str(sum(times)/len(times))) 
+              return correct / num_examples
 
 
 def run(i, datasets):
