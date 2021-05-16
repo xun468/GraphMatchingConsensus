@@ -105,14 +105,11 @@ def test(dataset):
             times.append(start.elapsed_time(end))
 
             if num_examples >= args.test_samples:
-              print("Average inference time: " + str(sum(times)/len(times))) 
-              return correct / num_examples
+              # print("Average inference time: " + str(sum(times)/len(times))) 
+              return sum(times)/len(times), correct / num_examples
 
 print("num steps = " + str(args.num_steps))
 print("Isotropic = " + str(args.isotropic))
-
-start = torch.cuda.Event(enable_timing=True)
-end = torch.cuda.Event(enable_timing=True)
 
 for epoch in range(1, args.epochs + 1):
     start = timer()
@@ -122,8 +119,17 @@ for epoch in range(1, args.epochs + 1):
     time = end-start 
     print(f'Epoch: {epoch:02d}, Loss: {loss:.4f}, Time: {time:.2f}')
 
-    accs = [100 * test(test_dataset) for test_dataset in test_datasets]
+    accs = [] 
+    times = [] 
+
+    for test_dataset in test_datasets: 
+      t, a = test(test_dataset)
+      accs.append(100*a)
+      times.append(t)
+
     accs += [sum(accs) / len(accs)]
+    times = sum(times)/len(times)
 
     print(' '.join([c[:5].ljust(5) for c in PascalVOC.categories] + ['mean']))
     print(' '.join([f'{acc:.1f}'.ljust(5) for acc in accs]))
+    print('average inference time: ' + str(times))

@@ -112,19 +112,27 @@ def train():
 @torch.no_grad()
 def test(dataset):
     model.eval()
+    
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
 
     correct = num_examples = 0
+    times = []
     for pair in dataset.pairs:
         data_s, data_t = dataset[pair[0]], dataset[pair[1]]
         data_s, data_t = data_s.to(device), data_t.to(device)
+        start.record()
         S_0, S_L = model(data_s.x, data_s.edge_index, data_s.edge_attr, None,
                          data_t.x, data_t.edge_index, data_t.edge_attr, None)
+        end.record()
+        torch.cuda.synchronize()
         y = torch.arange(data_s.num_nodes, device=device)
         y = torch.stack([y, y], dim=0)
         correct += model.acc(S_L, y, reduction='sum')
         num_examples += y.size(1)
+        times.append(start.elapsed_time(end))
 
-    return correct / num_examples
+    return sum(times)/len(times), correct / num_examples
 
 print("num steps = " + str(args.num_steps))
 
@@ -136,8 +144,18 @@ for epoch in range(1, args.epochs + 1):
     time = end-start 
     print(f'Epoch: {epoch:02d}, Loss: {loss:.4f}, Acc: {acc:.2f},  Time: {time:.2f}')
 
-    accs = [100 * test(test_dataset) for test_dataset in test_datasets]
-    accs += [sum(accs) / len(accs)]
+    accs = [] 
+    times = [] 
 
+    for test_dataset in test_datasets: 
+      t, a = test(test_dataset)
+      accs.append(100*a)
+      times.append(t)
+
+    accs += [sum(accs) / len(accs)]
+    times = sum(times)/len(times)
+    
     print(' '.join([c[:5].ljust(5) for c in PascalPF.categories] + ['mean']))
     print(' '.join([f'{acc:.1f}'.ljust(5) for acc in accs]))
+    print('average inference time: ' + str(times))
+

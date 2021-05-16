@@ -90,19 +90,27 @@ def test(dataset):
     loader = DataLoader(dataset, args.batch_size, shuffle=False,
                         follow_batch=['x_s', 'x_t'])
 
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
     correct = num_examples = 0
+    times = []
     while (num_examples < args.test_samples):
         for data in loader:
             data = data.to(device)
+            start.record()
             S_L = model(data.x_s, data.edge_index_s, data.edge_attr_s,
                              data.x_s_batch, data.x_t, data.edge_index_t,
                              data.edge_attr_t, data.x_t_batch)
+            end.record()
+            torch.cuda.synchronize()
             y = generate_y(data.y)
             correct += model.acc(S_L, y, reduction='sum')
             num_examples += y.size(1)
+            times.append(start.elapsed_time(end))
 
             if num_examples >= args.test_samples:
-                return correct / num_examples
+              # print("Average inference time: " + str(sum(times)/len(times))) 
+              return sum(times)/len(times), correct / num_examples            
 
 print("num psi = " + str(args.num_psi))
 print("num layers = " + str(args.num_layers))
@@ -116,8 +124,18 @@ for epoch in range(1, args.epochs + 1):
     time = end-start 
     print(f'Epoch: {epoch:02d}, Loss: {loss:.4f}, Time: {time:.2f}')
 
-    accs = [100 * test(test_dataset) for test_dataset in test_datasets]
-    accs += [sum(accs) / len(accs)]
+    accs = [] 
+    times = [] 
 
+    for test_dataset in test_datasets: 
+      t, a = test(test_dataset)
+      accs.append(100*a)
+      times.append(t)
+
+    accs += [sum(accs) / len(accs)]
+    times = sum(times)/len(times)
+    
     print(' '.join([c[:5].ljust(5) for c in PascalVOC.categories] + ['mean']))
     print(' '.join([f'{acc:.1f}'.ljust(5) for acc in accs]))
+    print('average inference time: ' + str(times))
+

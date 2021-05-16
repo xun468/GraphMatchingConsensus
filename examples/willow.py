@@ -133,6 +133,8 @@ def test(test_dataset):
     test_loader1 = DataLoader(test_dataset, args.batch_size, shuffle=True)
     test_loader2 = DataLoader(test_dataset, args.batch_size, shuffle=True)
 
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
     correct = num_examples = 0
     times = []
     while (num_examples < args.test_samples):
@@ -145,14 +147,15 @@ def test(test_dataset):
                            data_t.edge_attr, data_t.batch)
             end.record()
             torch.cuda.synchronize()
-
+            times.append(start.elapsed_time(end))
+            
             y = generate_y(num_nodes=10, batch_size=data_t.num_graphs)
             correct += model.acc(S_L, y, reduction='sum')
             num_examples += y.size(1)
 
             if num_examples >= args.test_samples:
-              print("Average inference time: " + str(sum(times)/len(times))) 
-              return correct / num_examples
+              # print("Average inference time: " + str(sum(times)/len(times))) 
+              return sum(times)/len(times), correct / num_examples
 
 
 def run(i, datasets):
@@ -177,11 +180,21 @@ def run(i, datasets):
         time = end-start 
         print("Time: " + str(time))
 
-    accs = [100 * test(test_dataset) for test_dataset in test_datasets]
+    accs = [] 
+    times = [] 
+
+    for test_dataset in test_datasets: 
+      t, a = test(test_dataset)
+      accs.append(100*a)
+      times.append(t)
+
+    accs += [sum(accs) / len(accs)]
+    times = sum(times)/len(times)
 
     print(f'Run {i:02d}:')
     print(' '.join([category.ljust(13) for category in WILLOW.categories]))
     print(' '.join([f'{acc:.2f}'.ljust(13) for acc in accs]))
+    print('average inference time: ' + str(times))
 
     return accs
 
