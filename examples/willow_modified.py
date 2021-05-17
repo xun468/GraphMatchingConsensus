@@ -200,6 +200,8 @@ def run(i, datasets):
     print(' '.join([f'{acc:.2f}'.ljust(13) for acc in accs]))
     print('average inference time: ' + str(times))
 
+    return accs 
+
 
 accs = [run(i, datasets) for i in range(1, 1 + args.runs)]
 print('-' * 14 * 5)
