@@ -62,11 +62,11 @@ class DGMC_modified_v2(torch.nn.Module):
             computation of :math:`\Psi_{\theta_1}` from the current computation
             graph. (default: :obj:`False`)
     """
-    def __init__(self, psi1_stack, psi_2, num_steps, num_lsteps, k=-1, detach=False):
+    def __init__(self, psi1_stack, num_steps, num_lsteps, k=-1, detach=False):
         super(DGMC_modified_v2, self).__init__()
 
         self.psi1_stack = ModuleList(psi1_stack)
-        self.psi_2 = psi_2
+        # self.psi_2 = psi_2
         self.num_steps = num_steps
         self.num_lsteps = num_lsteps 
         self.k = k
@@ -74,18 +74,18 @@ class DGMC_modified_v2(torch.nn.Module):
         self.backend = 'auto'
 
         self.mlp = Seq(
-            Lin(psi_2.out_channels, psi_2.out_channels),
+            Lin(psi1_stack[-1].out_channels, psi1_stack[-1].out_channels),
             ReLU(),
-            Lin(psi_2.out_channels, 1),
+            Lin(psi1_stack[-1].out_channels, 1),
         )
 
         self.sum_weights_local = Parameter(torch.ones(len(psi1_stack)))
-        self.sum_weights = Parameter(torch.ones(1))
+        # self.sum_weights = Parameter(torch.ones(1))
 
     def reset_parameters(self):
         for psi in self.psi1_stack:          
           psi.reset_parameters()
-        self.psi_2.reset_parameters()
+        # self.psi_2.reset_parameters()
         reset(self.mlp)
         #reset sum_weights
 
@@ -171,7 +171,7 @@ class DGMC_modified_v2(torch.nn.Module):
 
           assert h_s.size(0) == h_t.size(0), 'Encountered unequal batch-sizes'
           (B, N_s, C_out), N_t = h_s.size(), h_t.size(1)
-          R_in, R_out = self.psi_2.in_channels, self.psi_2.out_channels
+          # R_in, R_out = self.psi_2.in_channels, self.psi_2.out_channels
 
           S_hat = h_s @ h_t.transpose(-1, -2)  # [B, N_s, N_t, C_out]
           S_mask = s_mask.view(B, N_s, 1) & t_mask.view(B, 1, N_t)     
@@ -179,30 +179,33 @@ class DGMC_modified_v2(torch.nn.Module):
           L_stack.append(masked_softmax(S_hat, S_mask, dim=-1)[s_mask])
 
         # ------ Neighborhood Consensus ------ #
-        S_stack = [] 
-        for _ in range(self.num_steps):
-          S = masked_softmax(S_hat, S_mask, dim=-1)
-          r_s = torch.randn((B, N_s, R_in), dtype=h_s.dtype,
-                            device=h_s.device)
-          r_t = S.transpose(-1, -2) @ r_s
+        # S_stack = [] 
+        # for _ in range(self.num_steps):
+        #   S = masked_softmax(S_hat, S_mask, dim=-1)
+        #   r_s = torch.randn((B, N_s, R_in), dtype=h_s.dtype,
+        #                     device=h_s.device)
+        #   r_t = S.transpose(-1, -2) @ r_s
 
-          r_s, r_t = to_sparse(r_s, s_mask), to_sparse(r_t, t_mask)
-          o_s = self.psi_2(r_s, edge_index_s, edge_attr_s)
-          o_t = self.psi_2(r_t, edge_index_t, edge_attr_t)
-          o_s, o_t = to_dense(o_s, s_mask), to_dense(o_t, t_mask)
+        #   r_s, r_t = to_sparse(r_s, s_mask), to_sparse(r_t, t_mask)
+        #   o_s = self.psi_2(r_s, edge_index_s, edge_attr_s)
+        #   o_t = self.psi_2(r_t, edge_index_t, edge_attr_t)
+        #   o_s, o_t = to_dense(o_s, s_mask), to_dense(o_t, t_mask)
 
-          D = o_s.view(B, N_s, 1, R_out) - o_t.view(B, 1, N_t, R_out)
-          S_hat = S_hat + self.mlp(D).squeeze(-1).masked_fill(~S_mask, 0)
+        #   D = o_s.view(B, N_s, 1, R_out) - o_t.view(B, 1, N_t, R_out)
+        #   S_hat = S_hat + self.mlp(D).squeeze(-1).masked_fill(~S_mask, 0)
 
-          S_stack.append(masked_softmax(S_hat, S_mask, dim=-1)[s_mask])
+        #   S_stack.append(masked_softmax(S_hat, S_mask, dim=-1)[s_mask])
 
-        # S_final = self.sum_weights[0]*S_0 + self.sum_weights[1]*S_stack[-1]
-        # S_final = self.sum_weights[0]*L_stack[-1] + self.sum_weights[1]*S_stack[-1]
-        S_final = self.sum_weights_local[0]*L_stack[0] 
-        for i in range(1,len(self.sum_weights_local)):
-          S_final += self.sum_weights_local[i]*L_stack[i]
+        # # S_final = self.sum_weights[0]*S_0 + self.sum_weights[1]*S_stack[-1]
+        # # S_final = self.sum_weights[0]*L_stack[-1] + self.sum_weights[1]*S_stack[-1]
+        # S_final = self.sum_weights_local[0]*L_stack[0] 
+        # for i in range(1,len(self.sum_weights_local)):
+        #   S_final += self.sum_weights_local[i]*L_stack[i]
         
-        S_final += self.sum_weights[0]*S_stack[-1]
+        S_final = self.sum_weights_local[0] * L_stack[0]
+        for i in range(1, len(L_stack)):
+          S_final += self.sum_weights_local[i] * L_stack[i]
+
         S_final = torch.softmax(S_final, dim=-1)
         return S_final
 

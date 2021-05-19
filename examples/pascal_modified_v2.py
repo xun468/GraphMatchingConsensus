@@ -55,7 +55,7 @@ for i in range(args.num_psi):
                   dropout=0.5))
 psi_2 = SplineCNN(args.rnd_dim, args.rnd_dim, dataset.num_edge_features,
                   args.num_layers, cat=True, dropout=0.0)
-model = DGMC_modified(psi_stack, psi_2, num_steps=args.num_steps, num_lsteps=args.num_lsteps).to(device)
+model = DGMC_modified(psi_stack, num_steps=args.num_steps, num_lsteps=args.num_lsteps).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
 
@@ -86,38 +86,53 @@ def train():
 @torch.no_grad()
 def test(dataset):
     model.eval()
-
-    loader = DataLoader(dataset, args.batch_size, shuffle=False,
-                        follow_batch=['x_s', 'x_t'])
+    
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
 
     correct = num_examples = 0
-    while (num_examples < args.test_samples):
-        for data in loader:
-            data = data.to(device)
-            S_L = model(data.x_s, data.edge_index_s, data.edge_attr_s,
-                             data.x_s_batch, data.x_t, data.edge_index_t,
-                             data.edge_attr_t, data.x_t_batch)
-            y = generate_y(data.y)
-            correct += model.acc(S_L, y, reduction='sum')
-            num_examples += y.size(1)
+    times = []
+    for pair in dataset.pairs:
+        data_s, data_t = dataset[pair[0]], dataset[pair[1]]
+        data_s, data_t = data_s.to(device), data_t.to(device)
+        start.record()
+        S_L = model(data_s.x, data_s.edge_index, data_s.edge_attr, None,
+                         data_t.x, data_t.edge_index, data_t.edge_attr, None)
+        end.record()
+        torch.cuda.synchronize()
+        y = torch.arange(data_s.num_nodes, device=device)
+        y = torch.stack([y, y], dim=0)
+        correct += model.acc(S_L, y, reduction='sum')
+        num_examples += y.size(1)
+        times.append(start.elapsed_time(end))
 
-            if num_examples >= args.test_samples:
-                return correct / num_examples
+    return sum(times)/len(times), correct / num_examples
 
+
+    
+
+print("num psi = " + str(args.num_psi))
 print("num layers = " + str(args.num_layers))
-print("num lsteps = " + str(args.num_lsteps))
-print("Isotropic = " + str(args.isotropic))
 
 for epoch in range(1, args.epochs + 1):
     start = timer()
-    loss = train()
+    loss, acc = train()
     end = timer()
 
     time = end-start 
-    print(f'Epoch: {epoch:02d}, Loss: {loss:.4f}, Time: {time:.2f}')
+    print(f'Epoch: {epoch:02d}, Loss: {loss:.4f}, Acc: {acc:.2f},  Time: {time:.2f}')
 
-    accs = [100 * test(test_dataset) for test_dataset in test_datasets]
+    accs = [] 
+    times = [] 
+
+    for test_dataset in test_datasets: 
+      t, a = test(test_dataset)
+      accs.append(100*a)
+      times.append(t)
+
     accs += [sum(accs) / len(accs)]
-
-    print(' '.join([c[:5].ljust(5) for c in PascalVOC.categories] + ['mean']))
+    times = sum(times)/len(times)
+    
+    print(' '.join([c[:5].ljust(5) for c in PascalPF.categories] + ['mean']))
     print(' '.join([f'{acc:.1f}'.ljust(5) for acc in accs]))
+    print('average inference time: ' + str(times))
