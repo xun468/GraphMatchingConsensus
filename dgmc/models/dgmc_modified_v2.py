@@ -161,8 +161,12 @@ class DGMC_modified_v2(torch.nn.Module):
         L_stack = [] 
         # for _ in range(self.num_lsteps):
         for psi_1 in self.psi1_stack: 
+          # print(x_s.shape)
+          # print(x_t.shape)
           h_s = psi_1(x_s, edge_index_s, edge_attr_s)
           h_t = psi_1(x_t, edge_index_t, edge_attr_t)
+          x_s = h_s 
+          x_t = h_t 
 
           h_s, h_t = (h_s.detach(), h_t.detach()) if self.detach else (h_s, h_t)
 

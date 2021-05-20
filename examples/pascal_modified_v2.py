@@ -49,8 +49,12 @@ train_loader = DataLoader(train_dataset, args.batch_size, shuffle=True,
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 psi_stack = []
-for i in range(args.num_psi):
-  psi_stack.append(SplineCNN(dataset.num_node_features, args.dim,
+psi_stack.append(SplineCNN(dataset.num_node_features, args.dim,
+                  dataset.num_edge_features, args.num_layers, cat=False,
+                  dropout=0.5))
+                  
+for i in range(args.num_psi-1):
+  psi_stack.append(SplineCNN(args.dim, args.dim,
                   dataset.num_edge_features, args.num_layers, cat=False,
                   dropout=0.5))
 psi_2 = SplineCNN(args.rnd_dim, args.rnd_dim, dataset.num_edge_features,
