@@ -12,6 +12,8 @@ from dgmc.utils import ValidPairDataset, PairDataset
 from dgmc.models import DGMC_modified, SplineCNN
 
 from timeit import default_timer as timer
+import pickle 
+import numpy as np 
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--isotropic', action='store_true')
@@ -129,7 +131,6 @@ def train(train_loader, optimizer):
 
     return total_loss / len(train_loader.dataset)
 
-
 @torch.no_grad()
 def test(test_dataset):
     model.eval()
@@ -141,6 +142,7 @@ def test(test_dataset):
     end = torch.cuda.Event(enable_timing=True)
     correct = num_examples = 0
     times = []
+
     while (num_examples < args.test_samples):
         for data_s, data_t in zip(test_loader1, test_loader2):
             data_s, data_t = data_s.to(device), data_t.to(device)
@@ -154,13 +156,21 @@ def test(test_dataset):
             times.append(start.elapsed_time(end))
             
             y = generate_y(num_nodes=10, batch_size=data_t.num_graphs)
-            correct += model.acc(S_L, y, reduction='sum')
+            
+            n_correct = model.acc(S_L, y, reduction='sum')
+            correct += n_correct
             num_examples += y.size(1)
+            times.append(start.elapsed_time(end))
+
+            names = [data_s.name,data_t.name]
+            pos = [data_s.pos, data_t.pos]
 
             if num_examples >= args.test_samples:
               # print("Average inference time: " + str(sum(times)/len(times))) 
-              return sum(times)/len(times), correct / num_examples
+              return sum(times)/len(times), correct / num_examples, S_L, y, names, pos
 
+best_acc = 0 
+best_save = [] 
 
 def run(i, datasets):
     datasets = [dataset.shuffle() for dataset in datasets]
@@ -182,18 +192,28 @@ def run(i, datasets):
         train(train_loader, optimizer)
         end = timer()
         time = end-start 
-        print("Time: " + str(time))
+        # print("Time: " + str(time))
 
     accs = [] 
     times = [] 
+    global best_acc 
+    global best_save 
 
+    to_save = [] 
     for test_dataset in test_datasets: 
-      t, a = test(test_dataset)
+      t, a, S_L, y, names, pos  = test(test_dataset)
       accs.append(100*a)
       times.append(t)
+      to_save.append([S_L,y,names,pos])
+      print(best_acc)
 
     accs += [sum(accs) / len(accs)]
     times = sum(times)/len(times)
+
+    if accs[-1] > best_acc: 
+      print(accs[-1])
+      best_save = to_save 
+      best_acc = accs[-1]
 
     print(f'Run {i:02d}:')
     print(' '.join([category.ljust(13) for category in WILLOW.categories]))
@@ -208,3 +228,9 @@ print('-' * 14 * 5)
 accs, stds = torch.tensor(accs).mean(dim=0), torch.tensor(accs).std(dim=0)
 print(' '.join([category.ljust(13) for category in WILLOW.categories]))
 print(' '.join([f'{a:.2f} ± {s:.2f}'.ljust(13) for a, s in zip(accs, stds)]))
+
+for i in range(len(best_save)):  
+  pickle.dump(best_save[i][0], open("SL" + str(i) + ".p", "wb" ))
+  pickle.dump(best_save[i][1], open("y" + str(i) + ".p", "wb" ))
+  pickle.dump(best_save[i][2], open("names" + str(i) + ".p", "wb" ))
+  pickle.dump(best_save[i][3], open("pos" + str(i) + ".p", "wb" ))
