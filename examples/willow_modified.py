@@ -162,7 +162,7 @@ def test(test_dataset):
             num_examples += y.size(1)
             times.append(start.elapsed_time(end))
 
-            names = [data_s.name,data_t.name]
+            names = [data_s.name, data_t.name]
             pos = [data_s.pos, data_t.pos]
 
             if num_examples >= args.test_samples:
